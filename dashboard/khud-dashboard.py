@@ -195,8 +195,8 @@ def api_x():
             "actor": d["actor"],
             "type": d["decision_type"],
             "before": before,
-            "decision": d["decision"],
-            "outcome": d["outcome"],
+            "decision": d["decision"] or "",
+            "outcome": d["outcome"] or "",
         })
 
     # ── khud reflections ──
@@ -265,35 +265,89 @@ def api_linkedin():
     db = get_db()
     now = now_utc()
     ist = ist_now()
+    ist_midnight = ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    utc_start = (ist_midnight - timedelta(hours=5, minutes=30)).isoformat()
+    cutoff_7d = (now - timedelta(days=7)).isoformat()
 
     data = {
         "time_ist": ist.strftime("%I:%M %p IST, %A"),
-        "status": "not active yet",
     }
+
+    # ── services status ──
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["launchctl", "list"], text=True, timeout=5)
+        services = {}
+        for svc in ["com.aria.khud-li"]:
+            services[svc.replace("com.aria.", "")] = svc in out
+        data["services"] = services
+    except Exception:
+        data["services"] = {}
 
     # ── linkedin queue ──
     try:
         queued = db.execute(
-            "SELECT content, territory FROM linkedin_queue WHERE status='queued'"
+            "SELECT content, territory, scores_json FROM linkedin_queue "
+            "WHERE status='queued' ORDER BY id DESC"
         ).fetchall()
-        data["queue"] = [{"text": q["content"], "territory": q["territory"]} for q in queued]
+        data["queue"] = []
+        for q in queued:
+            scores = {}
+            try:
+                scores = json.loads(q["scores_json"] or "{}")
+            except Exception:
+                pass
+            data["queue"].append({
+                "text": q["content"],
+                "territory": q["territory"],
+                "composite": scores.get("composite"),
+            })
     except Exception:
         data["queue"] = []
 
     # ── linkedin posted ──
     try:
         posted = db.execute(
-            "SELECT content, territory, post_url, posted_at FROM linkedin_posted "
-            "ORDER BY posted_at DESC LIMIT 20"
+            "SELECT content, territory, post_url, posted_at, scores_json "
+            "FROM linkedin_posted ORDER BY posted_at DESC LIMIT 30"
         ).fetchall()
-        data["posts"] = [{
-            "text": p["content"][:300],
-            "territory": p["territory"],
-            "url": p["post_url"],
-            "posted_at": p["posted_at"][:16],
-        } for p in posted]
+        data["posts_today"] = []
+        data["posts_all"] = []
+        for p in posted:
+            scores = {}
+            try:
+                scores = json.loads(p["scores_json"] or "{}")
+            except Exception:
+                pass
+            entry = {
+                "text": p["content"][:300],
+                "territory": p["territory"],
+                "url": p["post_url"],
+                "posted_at": (p["posted_at"] or "")[:16],
+                "composite": scores.get("composite"),
+            }
+            data["posts_all"].append(entry)
+            if p["posted_at"] and p["posted_at"] > utc_start:
+                data["posts_today"].append(entry)
     except Exception:
-        data["posts"] = []
+        data["posts_today"] = []
+        data["posts_all"] = []
+
+    # ── territory distribution 7d ──
+    try:
+        terr = db.execute(
+            "SELECT territory, COUNT(*) as c FROM linkedin_posted "
+            "WHERE posted_at > ? GROUP BY territory", (cutoff_7d,)
+        ).fetchall()
+        data["territory_7d"] = {t["territory"]: t["c"] for t in terr}
+    except Exception:
+        data["territory_7d"] = {}
+
+    # ── stats summary ──
+    data["posts_today_count"] = len(data["posts_today"])
+    data["posts_total"] = len(data["posts_all"])
+    data["queue_count"] = len(data["queue"])
 
     # ── linkedin reflections ──
     try:
@@ -329,18 +383,57 @@ def api_linkedin():
     except Exception:
         data["learned"] = []
 
+    # ── linkedin episodic memory ──
+    try:
+        epi = db.execute(
+            "SELECT content, category, importance, ts "
+            "FROM memory_episodic_li ORDER BY id DESC LIMIT 20"
+        ).fetchall()
+        data["episodic"] = [{
+            "content": e["content"],
+            "category": e["category"],
+            "importance": e["importance"],
+            "ts": e["ts"][:16],
+        } for e in epi]
+    except Exception:
+        data["episodic"] = []
+
+    # ── linkedin khud actions ──
+    try:
+        actions = db.execute(
+            "SELECT action_type, action_detail, result, ts "
+            "FROM khud_actions_li ORDER BY id DESC LIMIT 30"
+        ).fetchall()
+        data["khud_actions"] = [{
+            "type": a["action_type"],
+            "detail": a["action_detail"],
+            "result": a["result"],
+            "ts": a["ts"][:16],
+        } for a in actions]
+    except Exception:
+        data["khud_actions"] = []
+
     # ── linkedin decisions ──
     try:
         ledger = db.execute(
             "SELECT ts, actor, decision_type, before_state, decision, outcome "
             "FROM decision_ledger WHERE actor='khud_li' ORDER BY id DESC LIMIT 50"
         ).fetchall()
-        data["decisions"] = [{
-            "ts": d["ts"][:16],
-            "type": d["decision_type"],
-            "decision": d["decision"],
-            "outcome": d["outcome"],
-        } for d in ledger]
+        data["decisions"] = []
+        for d in ledger:
+            before = {}
+            try:
+                before = json.loads(d["before_state"] or "{}")
+            except Exception:
+                before = {"raw": d["before_state"]}
+            data["decisions"].append({
+                "ts": d["ts"][:16],
+                "actor": d["actor"],
+                "type": d["decision_type"],
+                "before": before,
+                "decision": d["decision"] or "",
+                "outcome": d["outcome"] or "",
+            })
     except Exception:
         data["decisions"] = []
 
@@ -485,7 +578,7 @@ function switchTab(tab) {
   });
 }
 
-function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) { if (s === null || s === undefined) return ''; s = String(s); const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 function renderX(d) {
   // ── LEFT: live activity ──
@@ -630,51 +723,140 @@ function renderX(d) {
 }
 
 function renderLinkedIn(d) {
-  let left = '<h2>LinkedIn Status</h2>';
-  left += `<div class="card">${d.status === 'not active yet' ? 'Khud (LinkedIn) is built but not activated yet. Ready to go when you say.' : esc(d.status)}</div>`;
-  left += `<div class="stat-row">
-    <div class="stat"><div class="stat-label">Posts</div><div class="stat-value">${(d.posts || []).length}</div></div>
-    <div class="stat"><div class="stat-label">Queue</div><div class="stat-value">${(d.queue || []).length}</div></div>
-  </div>`;
+  // ── LEFT: live activity ──
+  let left = '';
 
-  if ((d.posts || []).length) {
-    left += '<h2>Published Posts</h2>';
-    for (const p of d.posts) {
-      left += `<div class="card"><span class="tag">${esc(p.territory)}</span><div style="margin-top:8px">${esc(p.text)}</div><div class="meta">${p.posted_at}</div></div>`;
-    }
+  // services
+  left += '<h2>Services</h2><div style="margin-bottom:16px">';
+  for (const [name, on] of Object.entries(d.services || {})) {
+    left += `<span class="svc-item"><span class="svc-dot ${on ? 'on' : 'off'}"></span>${name}</span>`;
   }
-  if ((d.queue || []).length) {
-    left += '<h2>Queue</h2>';
-    for (const q of d.queue) {
-      left += `<div class="card"><span class="tag">${esc(q.territory)}</span><div style="margin-top:8px">${esc(q.text)}</div></div>`;
+  if (!Object.keys(d.services || {}).length) left += '<span style="color:#555;font-size:12px">no services configured</span>';
+  left += '</div>';
+
+  // stats
+  left += '<div class="stat-row">';
+  left += `<div class="stat"><div class="stat-label">Posts Today</div><div class="stat-value green">${d.posts_today_count || 0}</div></div>`;
+  left += `<div class="stat"><div class="stat-label">Total Posts</div><div class="stat-value">${d.posts_total || 0}</div></div>`;
+  left += `<div class="stat"><div class="stat-label">Queue</div><div class="stat-value">${d.queue_count || 0}</div></div>`;
+  left += '</div>';
+
+  // territory 7d
+  if (Object.keys(d.territory_7d || {}).length) {
+    left += '<h2>Territory Distribution (7d)</h2><div class="stat-row">';
+    for (const [t, c] of Object.entries(d.territory_7d)) {
+      left += `<div class="stat"><div class="stat-label">${esc(t)}</div><div class="stat-value">${c}</div></div>`;
+    }
+    left += '</div>';
+  }
+
+  // posts today
+  left += '<h2>Posts Today</h2>';
+  if (!(d.posts_today || []).length) left += '<div class="empty">nothing posted yet today</div>';
+  for (const p of (d.posts_today || [])) {
+    left += `<div class="card">
+      <span class="tag">${esc(p.territory)}</span>
+      ${p.composite ? `<span class="tag blue">${p.composite}</span>` : ''}
+      <div style="margin-top:8px">${esc(p.text)}</div>
+      <div class="meta">${p.posted_at || ''} ${p.url ? `<a href="${esc(p.url)}" target="_blank" style="color:#4a9cc4">view</a>` : ''}</div>
+    </div>`;
+  }
+
+  // queue
+  left += '<h2>Queue (next up)</h2>';
+  if (!(d.queue || []).length) left += '<div class="empty">queue empty</div>';
+  for (const q of (d.queue || [])) {
+    left += `<div class="card">
+      <span class="tag">${esc(q.territory)}</span>
+      ${q.composite ? `<span class="tag blue">${q.composite}</span>` : ''}
+      <div style="margin-top:8px">${esc(q.text)}</div>
+    </div>`;
+  }
+
+  // all posts (history)
+  if ((d.posts_all || []).length > (d.posts_today || []).length) {
+    left += '<h2>Recent Posts (all time)</h2>';
+    for (const p of (d.posts_all || [])) {
+      left += `<div class="card">
+        <span class="tag">${esc(p.territory)}</span>
+        <div style="margin-top:8px">${esc(p.text)}</div>
+        <div class="meta">${p.posted_at || ''} ${p.url ? `<a href="${esc(p.url)}" target="_blank" style="color:#4a9cc4">view</a>` : ''}</div>
+      </div>`;
     }
   }
 
   document.getElementById('li-left').innerHTML = left;
 
+  // ── RIGHT: decisions + brain ──
   let right = '';
+
+  // khud guidance
+  right += '<h2>Khud Current Guidance</h2>';
   const g = d.guidance || {};
-  right += '<h2>Khud Guidance</h2>';
   if (g.post_guidance) right += `<div class="card"><b>Post direction:</b> ${esc(g.post_guidance)}</div>`;
-  if (g.last_run) right += `<div class="card"><b>Last run:</b> ${esc(g.last_run)}</div>`;
+  if (g.post_count) right += `<div class="card"><b>Post count target:</b> ${esc(g.post_count)}</div>`;
+  if (g.last_summary) right += `<div class="card"><b>Summary:</b> ${esc(g.last_summary)}</div>`;
+  if (g.last_run) right += `<div class="card"><b>Last Khud run:</b> ${esc(g.last_run)}</div>`;
   if (!g.post_guidance && !g.last_run) right += '<div class="empty">no guidance yet (khud hasn\'t run)</div>';
 
-  right += '<h2>Learned Knowledge</h2>';
-  if (!(d.learned || []).length) right += '<div class="empty">no knowledge yet</div>';
+  // learned knowledge
+  right += '<h2>Learned Knowledge (permanent)</h2>';
+  if (!(d.learned || []).length) right += '<div class="empty">no learned knowledge yet</div>';
   for (const k of (d.learned || [])) {
-    right += `<div class="knowledge"><span class="confidence">${k.confidence}</span> ${esc(k.knowledge)}</div>`;
+    right += `<div class="knowledge">
+      <span class="confidence">${k.confidence} confidence</span> <span style="color:#555;font-size:11px">${k.ts}</span>
+      <div style="margin-top:6px">${esc(k.knowledge)}</div>
+    </div>`;
   }
 
-  right += '<h2>Reflections</h2>';
+  // reflections
+  right += '<h2>Khud Reflections</h2>';
   if (!(d.reflections || []).length) right += '<div class="empty">no reflections yet</div>';
   for (const r of (d.reflections || [])) {
-    right += `<div class="reflection"><span class="cat">${esc(r.category)}</span><div style="margin-top:6px">${esc(r.thought)}</div></div>`;
+    right += `<div class="reflection">
+      <span class="cat">${esc(r.category)}</span> <span style="color:#555;font-size:11px">${r.ts}</span>
+      <div style="margin-top:6px">${esc(r.thought)}</div>
+    </div>`;
   }
 
-  right += '<h2>Decisions</h2>';
-  if (!(d.decisions || []).length) right += '<div class="empty">no decisions yet</div>';
+  // episodic memory
+  if ((d.episodic || []).length) {
+    right += '<h2>Episodic Memory</h2>';
+    for (const e of d.episodic) {
+      right += `<div class="card" style="border-left:3px solid #4a9cc4">
+        <span class="tag blue">${esc(e.category)}</span>
+        <span style="color:#555;font-size:11px;margin-left:6px">importance: ${e.importance}</span>
+        <span style="color:#555;font-size:11px;margin-left:6px">${e.ts}</span>
+        <div style="margin-top:6px">${esc(e.content)}</div>
+      </div>`;
+    }
+  }
+
+  // decision ledger
+  right += '<h2>Decision Ledger</h2>';
+  if (!(d.decisions || []).length) right += '<div class="empty">no decisions logged yet</div>';
   for (const dec of (d.decisions || [])) {
-    right += `<div class="decision"><span class="actor">khud_li</span><span class="type">${esc(dec.type)}</span><div class="text">${esc(dec.decision)}</div></div>`;
+    const beforeStr = typeof dec.before === 'object' ? Object.entries(dec.before).map(([k,v]) => `${k}: ${v}`).join(' | ') : '';
+    right += `<div class="decision">
+      <span class="actor">${esc(dec.actor)}</span>
+      <span class="type">${esc(dec.type)}</span>
+      <span style="color:#555;font-size:11px;margin-left:8px">${dec.ts}</span>
+      <div class="text">${esc(dec.decision)}</div>
+      ${beforeStr ? `<div class="before">context: ${esc(beforeStr)}</div>` : ''}
+      ${dec.outcome ? `<div class="outcome">outcome: ${esc(dec.outcome)}</div>` : ''}
+    </div>`;
+  }
+
+  // khud actions log
+  if ((d.khud_actions || []).length) {
+    right += '<h2>Khud Actions Log</h2>';
+    for (const a of d.khud_actions) {
+      right += `<div class="log-entry">
+        <span style="color:#444">${(a.ts || '').substring(11)}</span>
+        <span class="proc">[${esc(a.type)}]</span> ${esc(a.detail)}
+        ${a.result ? `<span style="color:#666"> -> ${esc(a.result).substring(0,100)}</span>` : ''}
+      </div>`;
+    }
   }
 
   document.getElementById('li-right').innerHTML = right;
