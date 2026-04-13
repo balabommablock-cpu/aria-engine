@@ -1,0 +1,9 @@
+{
+  "name": "linkedin-scraper",
+  "version": "1.0.0",
+  "description": "Scrape recent LinkedIn posts from target people/companies via CDP Chrome, append to target-inbox.jsonl",
+  "main": "scrape_feed.js",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}

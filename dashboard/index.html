@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>aria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#09090b;--s1:#0f0f14;--s2:#16161f;--s3:#1c1c28;
+  --border:#1e1e30;--bh:#2d2d44;
+  --t1:#f0f0f4;--t2:#a0a0b8;--t3:#606078;--t4:#3a3a4e;
+  --green:#34d399;--blue:#60a5fa;--purple:#a78bfa;--amber:#fbbf24;--red:#f87171;--cyan:#22d3ee;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--t1);font-family:'Inter',system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',monospace}
+.page{max-width:800px;margin:0 auto;padding:48px 24px 80px}
+
+.head{text-align:center;margin-bottom:40px}
+.head h1{font-size:28px;font-weight:700;letter-spacing:-0.5px;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px}
+.head p{font-size:13px;color:var(--t3);line-height:1.6}
+
+/* ─── DAILY GOAL ─── */
+.goal{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:28px 32px;margin-bottom:32px;position:relative;overflow:hidden}
+.goal::before{content:'';position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,var(--cyan),var(--green),var(--purple));background-size:200% 100%;animation:grad 4s ease infinite}
+@keyframes grad{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.goal-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.goal-status{display:flex;align-items:center;gap:8px}
+.goal-status .dot{width:8px;height:8px;border-radius:50%;box-shadow:0 0 10px currentColor;animation:blink 1.5s ease infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.goal-status .dot.on{background:var(--green);color:var(--green)}
+.goal-status .dot.behind{background:var(--amber);color:var(--amber)}
+.goal-status .dot.starving{background:var(--red);color:var(--red)}
+.goal-label{font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:600;color:var(--t3)}
+.goal-pct{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--t3)}
+.goal-big{text-align:center;margin-bottom:20px}
+.goal-big .num{font-family:'JetBrains Mono',monospace;font-size:56px;font-weight:700;line-height:1}
+.goal-big .of{font-size:18px;color:var(--t3);font-weight:400}
+.goal-big .word{font-size:13px;color:var(--t2);margin-top:4px}
+.goal-bar-wrap{height:8px;background:var(--s3);border-radius:4px;overflow:hidden;margin-bottom:20px}
+.goal-bar{height:100%;border-radius:4px;transition:width .8s ease;background:linear-gradient(90deg,var(--cyan),var(--green))}
+.goal-bar.behind{background:linear-gradient(90deg,var(--amber),var(--amber))}
+.goal-bar.starving{background:linear-gradient(90deg,var(--red),var(--amber))}
+.goal-rows{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.goal-row{background:var(--s2);border-radius:8px;padding:10px 12px}
+.goal-row .gr-name{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.goal-row .gr-nums{display:flex;align-items:baseline;gap:4px}
+.goal-row .gr-done{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:600;line-height:1}
+.goal-row .gr-total{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--t4)}
+.goal-row .gr-bar{height:3px;background:var(--s3);border-radius:2px;margin-top:6px;overflow:hidden}
+.goal-row .gr-fill{height:100%;border-radius:2px;background:var(--green);transition:width .5s ease}
+.goal-row.behind .gr-done{color:var(--amber)}
+.goal-row.behind .gr-fill{background:var(--amber)}
+.goal-row.starving .gr-done{color:var(--red)}
+.goal-row.starving .gr-fill{background:var(--red)}
+.goal-row.on_track .gr-done,.goal-row.ahead .gr-done{color:var(--green)}
+
+/* ─── FOLLOWERS ─── */
+.followers{display:flex;justify-content:center;gap:32px;margin-bottom:32px}
+.fc{text-align:center}
+.fc .fc-v{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:600;line-height:1}
+.fc .fc-l{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1.5px;margin-top:4px}
+.fc.x .fc-v{color:var(--blue)}
+.fc.li .fc-v{color:var(--purple)}
+
+/* ─── WHAT'S HAPPENING ─── */
+.section{margin-bottom:28px}
+.sec-head{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--t3);font-weight:600;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.sec-count{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t4)}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:600px){.cards{grid-template-columns:1fr}}
+.card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:14px 16px;transition:border-color .2s}
+.card:hover{border-color:var(--bh)}
+.card .ct{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.card .cw{font-size:13px;font-weight:600}
+.card .cp{font-size:8px;font-weight:600;text-transform:uppercase;letter-spacing:1px;padding:2px 6px;border-radius:3px}
+.card .cp.x{background:rgba(96,165,250,.12);color:var(--blue)}
+.card .cp.li{background:rgba(167,139,250,.12);color:var(--purple)}
+.card .cb{font-size:12px;color:var(--t2);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px}
+.card .cf{font-size:10px;color:var(--t3);margin-top:6px;display:flex;align-items:center;gap:5px}
+.card .cd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.card .cd.y{background:var(--amber)}
+.card .cd.g{background:var(--green)}
+.card .cd.c{background:var(--cyan);box-shadow:0 0 6px var(--cyan)}
+.ce{font-size:12px;color:var(--t4);text-align:center;padding:16px 0;grid-column:1/-1}
+
+/* ─── ACTIVITY ─── */
+.act{background:var(--s1);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.act-h{padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.act-t{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--t3);font-weight:600;display:flex;align-items:center;gap:7px}
+.act-t .dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:blink 1.5s ease infinite}
+.act-b{max-height:280px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--s3) transparent}
+.act-b::-webkit-scrollbar{width:4px}
+.act-b::-webkit-scrollbar-thumb{background:var(--s3);border-radius:2px}
+.r{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:7px 18px;border-bottom:1px solid rgba(30,30,48,.3);animation:ri .2s ease}
+@keyframes ri{from{opacity:0;background:rgba(34,211,238,.03)}to{opacity:1;background:transparent}}
+.r .rt{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t4);padding-top:2px}
+.r .rw{font-size:12px;line-height:1.4}
+.r .rd{font-size:10px;color:var(--t4);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.r.ok .rw{color:var(--green)}.r.warn .rw{color:var(--amber)}.r.error .rw{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="head">
+    <h1>aria</h1>
+    <p>autonomous content engine. no agency. no team. just code.</p>
+  </div>
+
+  <div class="goal" id="goal">
+    <div class="goal-top">
+      <div class="goal-status"><span class="dot on" id="g-dot"></span><span class="goal-label" id="g-label">loading</span></div>
+      <div class="goal-pct" id="g-day"></div>
+    </div>
+    <div class="goal-big">
+      <div class="num"><span id="g-done">--</span><span class="of"> / <span id="g-total">--</span></span></div>
+      <div class="word">actions today</div>
+    </div>
+    <div class="goal-bar-wrap"><div class="goal-bar" id="g-bar" style="width:0%"></div></div>
+    <div class="goal-rows" id="g-rows"></div>
+  </div>
+
+  <div class="followers">
+    <div class="fc x"><div class="fc-v" id="f-x">--</div><div class="fc-l">x followers</div></div>
+    <div class="fc li"><div class="fc-v" id="f-li">--</div><div class="fc-l">linkedin</div></div>
+  </div>
+
+  <div class="section">
+    <div class="sec-head">in the pipeline <span class="sec-count" id="pipe-n"></span></div>
+    <div class="cards" id="pipe-cards"></div>
+  </div>
+
+  <div class="section">
+    <div class="sec-head">published today <span class="sec-count" id="pub-n"></span></div>
+    <div class="cards" id="pub-cards"></div>
+  </div>
+
+  <div class="act">
+    <div class="act-h">
+      <div class="act-t"><span class="dot"></span> activity</div>
+      <div class="sec-count" id="e-n"></div>
+    </div>
+    <div class="act-b" id="act-b"></div>
+  </div>
+</div>
+
+<script>
+const _base=location.pathname.startsWith('/aria')?'/aria':'';const API=location.origin+_base,MAX=50,AB=document.getElementById('act-b');
+const NAMES={x_reply:'x replies',x_first_reply:'first replies',x_post_original:'x posts',li_comment:'li comments',li_post:'li posts'};
+
+function ft(iso){if(!iso)return'';try{const d=new Date(iso.endsWith('Z')?iso:(iso.includes('+')?iso:iso+'Z'));return isNaN(d)?iso.slice(11,19):d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}catch{return''}}
+function ag(ms){if(!ms)return'';const s=Math.floor((Date.now()-ms)/1000);if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h'}
+function tr(s,n){return s&&s.length>n?s.slice(0,n)+'...':s||''}
+function pl(r){return(r.platform||'').toLowerCase()==='linkedin'?'li':'x'}
+
+function mkC(who,txt,stage,dot,p){
+  const d=document.createElement('div');d.className='card';
+  d.innerHTML='<div class="ct"><span class="cw">'+tr(who,26)+'</span><span class="cp '+p+'">'+p+'</span></div>'+(txt?'<div class="cb">'+tr(txt,100)+'</div>':'')+'<div class="cf"><span class="cd '+dot+'"></span>'+stage+'</div>';
+  return d;
+}
+function mkR(e){
+  const d=document.createElement('div');const l=e.level||'info';
+  d.className='r'+(l==='ok'?' ok':'')+(l==='warn'?' warn':'')+(l==='error'?' error':'');
+  d.innerHTML='<span class="rt">'+ft(e.ts_iso)+'</span><div><div class="rw">'+tr(e.title||e.stage||'',90)+'</div>'+(e.detail?'<div class="rd">'+tr(e.detail,120)+'</div>':'')+'</div>';
+  return d;
+}
+
+function update(s){
+  if(!s)return;
+  const dg=s.daily_goals||{};const fc=s.follower_counts||{};
+  const m=s.metrics||{};const inbox=s.inbox||{};const pending=s.pending||{};const approved=s.approved||{};
+
+  // followers
+  document.getElementById('f-x').textContent=fc.x||0;
+  document.getElementById('f-li').textContent=fc.linkedin||0;
+
+  // daily goals
+  const done=dg.total_done||0,total=dg.total_goal||0;
+  const pct=total?Math.round(done/total*100):0;
+  const status=dg.overall_status||'on_track';
+  document.getElementById('g-done').textContent=done;
+  document.getElementById('g-total').textContent=total;
+  document.getElementById('g-bar').style.width=Math.min(pct,100)+'%';
+  document.getElementById('g-bar').className='goal-bar'+(status==='behind'?' behind':'')+(status==='starving'?' starving':'');
+  document.getElementById('g-day').textContent=(dg.hours_elapsed||0)+'h / '+(dg.hours_total||15)+'h elapsed';
+
+  const dot=document.getElementById('g-dot');
+  const lbl=document.getElementById('g-label');
+  if(status==='starving'){dot.className='dot starving';lbl.textContent='starving';lbl.style.color='var(--red)'}
+  else if(status==='behind'){dot.className='dot behind';lbl.textContent='behind pace';lbl.style.color='var(--amber)'}
+  else if(status==='ahead'){dot.className='dot on';lbl.textContent='ahead';lbl.style.color='var(--green)'}
+  else{dot.className='dot on';lbl.textContent='on track';lbl.style.color='var(--green)'}
+
+  // goal rows
+  const gr=document.getElementById('g-rows');gr.innerHTML='';
+  const actions=dg.actions||{};
+  for(const[k,v]of Object.entries(actions)){
+    const d=document.createElement('div');
+    d.className='goal-row '+v.status;
+    const p=v.goal?Math.min(Math.round(v.done/v.goal*100),100):0;
+    d.innerHTML='<div class="gr-name">'+(NAMES[k]||k)+'</div><div class="gr-nums"><span class="gr-done">'+v.done+'</span><span class="gr-total">/ '+v.goal+'</span></div><div class="gr-bar"><div class="gr-fill" style="width:'+p+'%"></div></div>';
+    gr.appendChild(d);
+  }
+
+  // pipeline cards
+  const pc=document.getElementById('pipe-cards');pc.innerHTML='';let pn=0;
+  const rows=inbox.rows||[];
+  for(const r of rows){
+    if(r._example||r._comment)continue;
+    if(r.status==='processing'){pc.appendChild(mkC(r.author_handle||'?',r.draft||r.original||'','writing','y',pl(r)));pn++;if(pn>=6)break}
+  }
+  for(const r of rows){
+    if(r._example||r._comment||r.status!=='new')continue;
+    pc.appendChild(mkC(r.author_handle||'?',tr(r.original||'',80),'queued','',pl(r)));pn++;if(pn>=6)break;
+  }
+  for(const r of(pending.rows||[])){
+    if(r.status!=='sent')continue;
+    pc.appendChild(mkC(r.target_handle||'?',r.draft||'','ready to post','c',pl(r)));pn++;if(pn>=6)break;
+  }
+  document.getElementById('pipe-n').textContent=pn;
+  if(!pn)pc.innerHTML='<div class="ce">pipeline clear</div>';
+
+  // published
+  const lc=document.getElementById('pub-cards');lc.innerHTML='';let ln=0;
+  const cut=Date.now()-24*3600000;
+  for(const r of(approved.rows||[]).slice().reverse()){
+    if(r._example||r._comment)continue;
+    const t=r.approved_at||r.posted_at;const ms=t?new Date(t).getTime():0;
+    if(ms&&ms<cut)continue;
+    lc.appendChild(mkC(r.target_handle||r.source_id||'?',r.draft||'',ag(ms)+' ago','g',pl(r)));ln++;if(ln>=4)break;
+  }
+  document.getElementById('pub-n').textContent=ln;
+  if(!ln)lc.innerHTML='<div class="ce">nothing published yet today</div>';
+}
+
+function addE(e){AB.prepend(mkR(e));while(AB.childElementCount>MAX)AB.removeChild(AB.lastElementChild);document.getElementById('e-n').textContent=AB.childElementCount}
+
+function sse(){
+  const es=new EventSource(API+'/api/stream');
+  es.onmessage=e=>{try{addE(JSON.parse(e.data))}catch{}};
+  es.addEventListener('state',e=>{try{update(JSON.parse(e.data))}catch{}});
+  es.onerror=()=>{es.close();setTimeout(sse,3000)};
+}
+
+async function boot(){
+  try{const r=await fetch(API+'/api/state');update(await r.json())}catch{}
+  try{const r=await fetch(API+'/api/live?limit=30');for(const e of((await r.json()).events||[]))addE(e)}catch{}
+  sse();
+  setInterval(async()=>{try{update(await(await fetch(API+'/api/state')).json())}catch{}},8000);
+}
+boot();
+</script>
+</body>
+</html>

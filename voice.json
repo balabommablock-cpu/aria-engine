@@ -1,0 +1,126 @@
+{
+  "version": "2.1",
+  "handle": "@BalabommaRao",
+  "updated_at": null,
+
+  "golden_tweets": [
+    {"id": "g01", "text": "spent 36 hours automating a process i had never once done successfully by hand. 27 cron jobs. a dispatcher. a dashboard. zero tweets posted. if you need someone to scale nothing to production, i'm available.", "territory": "building", "style": "confession"},
+    {"id": "g02", "text": "product management is the only job where being creative is a liability until it suddenly saves the quarter.", "territory": "organizations", "style": "reframe"},
+    {"id": "g03", "text": "some people build things to make money. some people build things to solve problems. and then there's the third type who builds things because not building feels like a systems failure.", "territory": "building", "style": "taxonomy"},
+    {"id": "g04", "text": "the question isn't why i build side projects. the question is what would happen to my brain if i stopped.", "territory": "building", "style": "reframe"},
+    {"id": "g05", "text": "the most interesting thing about AI isn't that it can think. it's that it makes you realize how little of your job was thinking.", "territory": "ai", "style": "reframe"},
+    {"id": "g06", "text": "we keep asking if AI will replace us. the better question is which version of us survives contact with it.", "territory": "ai", "style": "reframe"},
+    {"id": "g07", "text": "taste is the willingness to say no without being able to fully explain why. most organizations have eliminated this capability.", "territory": "taste_agency", "style": "reframe"},
+    {"id": "g08", "text": "the scarcest resource in any organization isn't talent or capital. it's someone willing to make a decision without consensus.", "territory": "taste_agency", "style": "reframe"},
+    {"id": "g09", "text": "every company has a process for innovation. that sentence should bother you more than it does.", "territory": "organizations", "style": "observation"},
+    {"id": "g10", "text": "we build dashboards to feel informed, meetings to feel aligned, and roadmaps to feel in control. the product ships in spite of all three.", "territory": "organizations", "style": "observation"},
+    {"id": "g11", "text": "the most dangerous person in tech right now is a single builder with taste, an API key, and nothing to lose.", "territory": "building", "style": "declaration"}
+  ],
+
+  "territory_weights": {
+    "building": 0.30,
+    "organizations": 0.25,
+    "ai": 0.25,
+    "taste_agency": 0.20
+  },
+
+  "territory_prompts": {
+    "building": "write a single original observation about the compulsion to build things, the absurdity of solo creation, what builders know that non-builders don't, or the gap between making something and anyone caring about it. the speaker is someone who builds compulsively and finds it more interesting than tragic.",
+    "organizations": "write a single original observation about how organizations, companies, or teams actually work vs how they pretend to work. topics: consensus as cowardice, process as theater, the gap between strategy decks and reality, what meetings actually accomplish, why most products ship in spite of the system not because of it.",
+    "ai": "write a single original observation about what AI reveals about humans, work, intelligence, or agency. not about AI capabilities or news. about what AI forces us to confront about ourselves, our jobs, our thinking, or our assumptions about what's valuable.",
+    "taste_agency": "write a single original observation about taste, conviction, decision-making, agency, or what it means to act on what you believe inside systems that discourage it. the speaker values doing over discussing and finds the absence of taste in most things quietly maddening."
+  },
+
+  "structure_rules": {
+    "primary": "redefine a familiar concept in sentence one, then reveal the uncomfortable implication in sentence two.",
+    "max_sentences": 2,
+    "exception": "a 3-sentence builder confession is allowed when the story earns the length. rare, maybe 1 in 10.",
+    "max_chars": 280,
+    "case": "all lowercase. no exceptions.",
+    "punctuation": "periods only. no exclamation marks. no question marks unless the question IS the point."
+  },
+
+  "hard_bans": {
+    "characters": ["\u2014", "\u2013", "!", "#"],
+    "words": ["delve", "nuanced", "landscape", "leverage", "synergy", "paradigm", "ecosystem", "holistic", "robust", "scalable", "innovative", "disrupting", "game-changing", "cutting-edge", "world-class", "deep dive", "unpack", "absolutely", "indeed", "precisely", "fascinating", "remarkable", "incredibly", "fundamentally", "essentially"],
+    "phrases": ["here's the thing", "here's what i learned", "hot take", "unpopular opinion", "let me explain", "a thread", "thread:", "1/", "you should", "try to", "make sure to", "the key is", "here's how", "pro tip", "the lesson here", "the takeaway", "if you're a", "great point", "this is why", "it's worth noting", "to be fair", "at the end of the day", "this is a great example", "the real question is", "like if you agree", "rt if you", "follow me for"],
+    "patterns": ["^This\\.", "^So,", "^Look,", "^Listen,", "^Honestly,", "^Actually,", "^Genuinely", "\\d+\\s*(tips|ways|reasons|lessons|things|steps|rules|hacks)", "@\\w+", "https?://", "\\.com", "\\.io", "\\.ai"]
+  },
+
+  "red_lines": [
+    "never mention MOFSL, Motilal Oswal, or any colleague by name",
+    "never make claims about market returns or investment performance",
+    "never reference specific client or partner data",
+    "never use the bhilai-as-underdog narrative",
+    "never fabricate receipts or fake engagement metrics",
+    "never mention IIM-K, VP title, or any credential in tweet body"
+  ],
+
+  "algo_scoring": {
+    "reply_provocation_weight": 1.0,
+    "bookmark_worthy_bonus": 1.5,
+    "hook_strength_weight": 1.0,
+    "length_bands": {
+      "optimal_short": {"min": 71, "max": 100, "bonus": 1.5},
+      "optimal_long": {"min": 240, "max": 259, "bonus": 1.0},
+      "over_260": {"bonus": -0.5},
+      "default": {"bonus": 0}
+    },
+    "voice_match_threshold": 7,
+    "min_composite_to_queue": 22
+  },
+
+  "variety": {
+    "min_territory_pct_weekly": 0.15,
+    "max_territory_pct_weekly": 0.40,
+    "max_consecutive_same_territory": 2
+  },
+
+  "timing": {
+    "windows_ist": [
+      {"name": "morning", "start": "07:30", "end": "10:30", "weight": 0.25},
+      {"name": "midday", "start": "11:30", "end": "14:30", "weight": 0.20},
+      {"name": "afternoon", "start": "16:00", "end": "18:00", "weight": 0.15},
+      {"name": "evening_overlap", "start": "19:30", "end": "23:00", "weight": 0.40}
+    ],
+    "min_gap_hours": 2,
+    "timezone": "Asia/Kolkata"
+  },
+
+  "images": {
+    "strategies": ["quote_card", "terminal_screenshot", "code_snippet", "whiteboard", "diagram", "mood_image", "none"],
+    "default": "none",
+    "rules": {
+      "aphorism_reframe": "quote_card",
+      "builder_confession": "terminal_screenshot",
+      "organizational_observation": "none",
+      "ai_observation": "none",
+      "declaration": "quote_card"
+    },
+    "quote_card_style": {
+      "bg_color": "#FAF8F3",
+      "text_color": "#2C2B28",
+      "accent_color": "#6B8F71",
+      "font": "Lora",
+      "dimensions": [1200, 675]
+    }
+  },
+
+  "engage": {
+    "monitor_after_post_minutes": [5, 15, 30],
+    "self_reply_delay_minutes": 5,
+    "max_auto_replies": 3,
+    "reply_style": "extend the observation with a concrete example or second angle. same voice. never thank them for engaging."
+  },
+
+  "phase": {
+    "current": 0,
+    "rules": {
+      "0": {"name": "handwritten", "content_types": ["original"], "advance_at": "manual"},
+      "1": {"name": "voice_engine", "follower_range": [0, 10], "content_types": ["original"], "posts_per_day": 5, "advance_at": 10},
+      "2": {"name": "selective_replies", "follower_range": [10, 50], "content_types": ["original", "reply"], "posts_per_day": 7, "advance_at": 50},
+      "3": {"name": "expansion", "follower_range": [50, 200], "content_types": ["original", "reply", "thread", "quote_tweet"], "posts_per_day": 7, "advance_at": 200},
+      "4": {"name": "network", "follower_range": [200, null], "content_types": ["original", "reply", "thread", "quote_tweet", "linkedin"], "posts_per_day": 8, "advance_at": null}
+    }
+  }
+}

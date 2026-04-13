@@ -1,0 +1,9 @@
+{
+  "name": "x-scraper",
+  "version": "1.0.0",
+  "description": "Scrape recent tweets from target handles via CDP-connected Chrome, append to target-inbox.jsonl",
+  "main": "scrape_timeline.js",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}
