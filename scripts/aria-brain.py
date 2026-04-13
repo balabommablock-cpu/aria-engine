@@ -54,13 +54,13 @@ TARGETS_PATH   = shared.TARGETS_PATH
 # CONSTANTS
 # ============================================================
 
-SIGNAL_STALE_HOURS = 3
+SIGNAL_STALE_HOURS = 2
 SIGNAL_CAP         = 200
-MIN_QUEUE_SIZE     = 3
-BATCH_SIZE         = 4
-REPLY_COOLDOWN_H   = 4
-MAX_READY_REPLIES  = 3
-QUEUE_EXPIRY_HOURS = 48
+MIN_QUEUE_SIZE     = 4
+BATCH_SIZE         = 6
+REPLY_COOLDOWN_H   = 2       # aggressive cold-start: 2h, not 4h
+MAX_READY_REPLIES  = 5       # keep 5 replies loaded, not 3
+QUEUE_EXPIRY_HOURS = 36
 
 RSS_FEEDS = [
     {"url": "https://blog.anthropic.com/rss.xml",           "territory": "ai",            "name": "Anthropic"},
@@ -216,17 +216,60 @@ def pick_territories(voice: dict) -> list:
 
 
 def pick_image_type(text: str, territory: str, voice: dict) -> str:
-    """Decide image type based on content and territory."""
-    if len(text) < 100 and territory in ("taste_agency", "ai"):
-        return "quote_card"
+    """Decide image type based on content and territory.
+    RULE: quote_card text must NEVER repeat the tweet text.
+    The card should contain a complementary punchline, not a copy."""
     if territory == "building" and any(w in text for w in
             ["built", "automated", "cron", "deploy", "ship", "code", "script"]):
         return "terminal_screenshot"
-    return random.choice(["quote_card", "none", "none"])  # 1/3 chance
+    # quote cards only for short punchy tweets where we can add a visual hook
+    if len(text) < 120 and territory in ("taste_agency", "ai", "organizations"):
+        return "quote_card"
+    return random.choice(["none", "none", "none", "quote_card"])  # 25% chance
+
+
+def generate_card_text(tweet_text: str, territory: str) -> str:
+    """Generate a complementary card punchline that adds to the tweet.
+    NEVER the same as the tweet. The card text should be the visual hook
+    that makes someone stop scrolling. The tweet text is the thought.
+    The card is the bumper sticker version or a different angle."""
+    from importlib import import_module
+    shared = import_module("aria-shared")
+
+    prompt = f"""you are writing the TEXT for a visual quote card that accompanies a tweet.
+
+the tweet says: "{tweet_text}"
+
+the card text must be COMPLETELY DIFFERENT from the tweet. NOT a copy. NOT a subset.
+it should be one of:
+  - a shorter, punchier version of the UNDERLYING idea (not the same words)
+  - a complementary angle the tweet doesn't cover
+  - a provocative one-liner that makes the tweet's point hit harder
+  - a setup line that the tweet then pays off (card = curiosity, tweet = answer)
+
+rules:
+  - max 15 words. shorter is better.
+  - no em dashes, no hashtags, no @mentions
+  - natural case
+  - it should work as a standalone image even without the tweet
+
+respond with ONLY the card text. nothing else."""
+
+    result = shared.call_claude(prompt)
+    if result:
+        # clean up: strip quotes, whitespace
+        result = result.strip().strip('"').strip("'").strip()
+        # verify it's actually different from the tweet
+        if result.lower() != tweet_text.lower() and result.lower() not in tweet_text.lower():
+            return result
+    return ""
 
 
 def build_generation_prompt(voice: dict, territories: list,
-                            signal_context: str, avoid_context: str) -> str:
+                            signal_context: str, avoid_context: str,
+                            fewshot_context: str = "",
+                            recent_hooks: str = "",
+                            khud_guidance: str = "") -> str:
     """Build the Claude prompt for tweet generation."""
     golden = voice["golden_tweets"]
     golden_text = "\n".join([f"- {g['text']}" for g in golden])
@@ -245,12 +288,28 @@ def build_generation_prompt(voice: dict, territories: list,
         for i, t in enumerate(territories)
     ])
 
+    # few-shot section from actual posted tweets
+    fewshot_section = ""
+    if fewshot_context:
+        fewshot_section = f"""
+RECENT POSTED TWEETS (these passed quality gate and were published. match this voice calibration):
+{fewshot_context}
+"""
+
+    # hook rotation guidance
+    hook_guidance = ""
+    if recent_hooks:
+        hook_guidance = f"""
+RECENT HOOK PATTERNS USED (vary from these, do NOT repeat the same pattern):
+{recent_hooks}
+"""
+
     prompt = f"""you are ghostwriting tweets for @BalabommaRao. match his voice exactly.
 
 GOLDEN TWEETS (the gold standard -- match this quality and voice):
 {golden_text}
-
-WRITE 4 TWEETS, one for each territory below:
+{fewshot_section}
+WRITE 6 TWEETS for the territories below (you may repeat a territory if you have multiple strong angles):
 {territory_directions}
 
 RECENT SIGNALS (for topical awareness, don't quote directly):
@@ -258,10 +317,11 @@ RECENT SIGNALS (for topical awareness, don't quote directly):
 
 ALREADY POSTED OR QUEUED (don't repeat these angles):
 {avoid_context}
-
+{hook_guidance}
 STRUCTURE RULES:
 - {structure.get('primary', 'redefine a familiar concept, reveal the uncomfortable implication')}
-- max {structure.get('max_sentences', 2)} sentences, max {structure.get('max_chars', 280)} chars
+- STANDARD tweets: max {structure.get('max_sentences', 2)} sentences, max {structure.get('max_chars', 280)} chars
+- LONG-FORM tweets: 1-2 of your 6 should be 400-600 chars. these are deeper explorations, mini-essays, or multi-observation threads packed into one post. premium accounts get algorithm boost on dwell time, so longer posts that reward re-reading perform well. mark these with format: long_form in the output.
 - {structure.get('case', 'all lowercase')}
 - {structure.get('punctuation', 'periods only')}
 
@@ -270,6 +330,9 @@ HARD BANS (instant reject if any appear):
 - phrases: {ban_phrases_str}
 - no em dashes, no en dashes, no hashtags, no emojis, no exclamation marks, no hyphens as formatting
 
+CREATIVE DIRECTION FROM CLAUDE KHUD (your strategist brain -- follow this guidance):
+{khud_guidance if khud_guidance else "(no specific guidance this cycle -- use your own judgment)"}
+
 ANTI-PATTERNS (do NOT produce any of these):
 - do not write anything that sounds like a motivational poster or LinkedIn post
 - if you can imagine someone commenting "so true" under it, rewrite it
@@ -277,38 +340,26 @@ ANTI-PATTERNS (do NOT produce any of these):
 - no advice. no prescriptions. no "you should" energy. only observations and confessions.
 
 STRUCTURAL VARIETY:
-- vary the structure. use: reframe, taxonomy, confession, observation, declaration.
-- do not use the same structure for all 4 tweets.
-- at least 2 of the 4 must use different structures.
+- vary the hook_pattern. use: reframe, taxonomy, confession, observation, declaration.
+- do not use the same hook_pattern for all 4 tweets.
+- at least 3 of the 4 must use different hook_patterns.
+
+DWELL TIME: write tweets that require re-reading. a delayed reveal, a specific number that makes the reader pause, a quiet implication that detonates on second read. if a reader can fully absorb it in one pass, it's not sharp enough.
 
 OPTIMIZE FOR: scroll-stopping, reply-provoking content. the golden metric is VIEWS AND ENGAGEMENT. write something that makes a smart person stop, think, and want to argue or add their take.
 
-FOR EACH TWEET, also rate it on these 3 dimensions (1-10):
+FOR EACH TWEET, rate on these 3 dimensions (1-10) and identify the hook pattern:
 - reply_provocation: how likely someone replies to argue or add their take
-- bookmark_worthy: would someone save this to think about later
+- bookmark_worthy: would a PM/founder/builder save this to revisit? does it contain a reframe, a framework, or a confession that names something unnamed?
 - hook_strength: does the opening make you stop scrolling
+- hook_pattern: reframe / confession / observation / declaration / taxonomy
 
-RESPOND IN THIS EXACT FORMAT (4 blocks separated by ---, nothing else):
+RESPOND IN THIS EXACT FORMAT (6 blocks separated by ---, nothing else):
+use --- to separate each tweet block. generate 6 blocks, each in this format:
 ---
 territory: [territory name]
-tweet: [the tweet text, no quotes]
-reply_provocation: [1-10]
-bookmark_worthy: [1-10]
-hook_strength: [1-10]
----
-territory: [territory name]
-tweet: [the tweet text, no quotes]
-reply_provocation: [1-10]
-bookmark_worthy: [1-10]
-hook_strength: [1-10]
----
-territory: [territory name]
-tweet: [the tweet text, no quotes]
-reply_provocation: [1-10]
-bookmark_worthy: [1-10]
-hook_strength: [1-10]
----
-territory: [territory name]
+hook_pattern: [reframe/confession/observation/declaration/taxonomy]
+format: [standard/long_form]
 tweet: [the tweet text, no quotes]
 reply_provocation: [1-10]
 bookmark_worthy: [1-10]
@@ -348,13 +399,15 @@ def enforce_hard_bans(text: str, voice: dict) -> tuple:
     return text, False, ""
 
 
-def parse_batch_response(raw: str, voice: dict, avoid_texts: list) -> list:
+def parse_batch_response(raw: str, voice: dict, avoid_texts: list,
+                         recent_hook_patterns: list | None = None) -> list:
     """Parse Claude's ---delimited response into candidate dicts."""
     candidates = []
     blocks = re.split(r'---+', raw)
     algo = voice.get("algo_scoring", {})
     structure = voice.get("structure_rules", {})
     min_composite = algo.get("min_composite_to_queue", 22)
+    recent_hooks = recent_hook_patterns or []
 
     for block in blocks:
         block = block.strip()
@@ -363,6 +416,8 @@ def parse_batch_response(raw: str, voice: dict, avoid_texts: list) -> list:
 
         # Extract fields via regex
         territory_m = re.search(r'territory:\s*(.+)', block, re.IGNORECASE)
+        hook_pattern_m = re.search(r'hook_pattern:\s*(\w+)', block, re.IGNORECASE)
+        format_m = re.search(r'format:\s*(\w+)', block, re.IGNORECASE)
         tweet_m = re.search(r'tweet:\s*(.+?)(?:\n|reply_provocation)', block,
                             re.IGNORECASE | re.DOTALL)
         prov_m = re.search(r'reply_provocation:\s*(\d+)', block, re.IGNORECASE)
@@ -386,21 +441,38 @@ def parse_batch_response(raw: str, voice: dict, avoid_texts: list) -> list:
             log_brain(f"  rejected: {reason} -- \"{text[:50]}...\"")
             continue
 
-        # Force lowercase
-        if structure.get("case", "").startswith("all lowercase"):
+        # Apply case rule from voice config (no longer forcing lowercase)
+        case_rule = structure.get("case", "")
+        if case_rule.startswith("all lowercase"):
             text = text.lower()
 
         # Strip leading/trailing whitespace after all transforms
         text = text.strip()
 
-        # Length check
-        if len(text) > 280 or len(text) < 30:
-            log_brain(f"  length {len(text)}, skip -- \"{text[:40]}...\"")
+        # Detect format type
+        tweet_format = format_m.group(1).strip().lower() if format_m else "standard"
+        is_long_form = tweet_format == "long_form"
+
+        # Length check (Premium: long_form tweets up to 600 chars)
+        max_len = 600 if is_long_form else 280
+        if len(text) > max_len or len(text) < 30:
+            log_brain(f"  length {len(text)}/{max_len}, skip -- \"{text[:40]}...\"")
             continue
 
         # Dedup against existing queue + posted
         if any(text[:50].lower() == existing[:50].lower() for existing in avoid_texts if existing):
             log_brain(f"  duplicate angle, skip")
+            continue
+
+        # Extract hook_pattern
+        hook_pattern = hook_pattern_m.group(1).strip().lower() if hook_pattern_m else "observation"
+        valid_patterns = {"reframe", "confession", "observation", "declaration", "taxonomy"}
+        if hook_pattern not in valid_patterns:
+            hook_pattern = "observation"
+
+        # Hook rotation: reject if same pattern 3x in a row
+        if len(recent_hooks) >= 2 and all(h == hook_pattern for h in recent_hooks[-2:]):
+            log_brain(f"  hook rotation: {hook_pattern} 3x in a row, skip -- \"{text[:40]}...\"")
             continue
 
         # Extract scores (clamp 1-10)
@@ -412,19 +484,22 @@ def parse_batch_response(raw: str, voice: dict, avoid_texts: list) -> list:
         tlen = len(text)
         length_bonus = 0
         bands = algo.get("length_bands", {})
-        if 71 <= tlen <= 100:
+        if is_long_form and tlen >= 300:
+            length_bonus = 2.0  # Premium long-form dwell time bonus
+        elif 71 <= tlen <= 100:
             length_bonus = bands.get("optimal_short", {}).get("bonus", 1.5)
         elif 240 <= tlen <= 259:
             length_bonus = bands.get("optimal_long", {}).get("bonus", 1.0)
-        elif tlen > 260:
+        elif tlen > 260 and not is_long_form:
             length_bonus = bands.get("over_260", {}).get("bonus", -0.5)
         else:
             length_bonus = bands.get("default", {}).get("bonus", 0)
 
-        # Composite score
+        # Composite score (bookmark_worthy_bonus now properly enforced)
+        bookmark_multiplier = algo.get("bookmark_worthy_bonus", 1.5)
         composite = round(
             provocation * algo.get("reply_provocation_weight", 1.0) +
-            bookmark    * algo.get("bookmark_worthy_bonus", 1.5) +
+            bookmark    * bookmark_multiplier +
             hook        * algo.get("hook_strength_weight", 1.0) +
             length_bonus, 1
         )
@@ -438,11 +513,27 @@ def parse_batch_response(raw: str, voice: dict, avoid_texts: list) -> list:
             "provocation": provocation,
             "bookmark": bookmark,
             "hook": hook,
+            "hook_pattern": hook_pattern,
             "length_bonus": length_bonus,
             "composite": composite,
         }
 
         image_type = pick_image_type(text, territory, voice)
+
+        # generate complementary card text (NEVER same as tweet)
+        card_text = ""
+        if image_type == "quote_card":
+            try:
+                card_text = generate_card_text(text, territory)
+                if card_text:
+                    log_brain(f"  card_text: \"{card_text}\"")
+                else:
+                    log_brain(f"  card_text generation failed, dropping to text-only")
+                    image_type = "none"
+            except Exception as e:
+                log_brain(f"  card_text error: {e}, dropping to text-only")
+                image_type = "none"
+
         now = now_utc()
         expires = (now + timedelta(hours=QUEUE_EXPIRY_HOURS)).isoformat()
 
@@ -452,14 +543,16 @@ def parse_batch_response(raw: str, voice: dict, avoid_texts: list) -> list:
             "territory": territory,
             "scores_json": json.dumps(scores),
             "image_type": image_type,
+            "card_text": card_text,
             "generated_at": now.isoformat(),
             "expires_at": expires,
         }
 
         candidates.append(candidate)
-        avoid_texts.append(text)  # prevent intra-batch dupes
+        avoid_texts.append(text)
+        recent_hooks.append(hook_pattern)  # track for intra-batch rotation
 
-        log_brain(f"  [{territory}] composite={composite} "
+        log_brain(f"  [{territory}/{hook_pattern}] composite={composite} "
                   f"p={provocation} b={bookmark} h={hook} "
                   f"\"{text[:60]}...\"")
 
@@ -485,7 +578,7 @@ def generate_tweets(db, voice: dict):
 
     # Gather avoid list (recent posted + currently queued)
     posted_rows = db.execute(
-        "SELECT text FROM posted ORDER BY posted_at DESC LIMIT 10"
+        "SELECT text, scores_json FROM posted ORDER BY posted_at DESC LIMIT 10"
     ).fetchall()
     queued_rows = db.execute(
         "SELECT text FROM queue WHERE status='queued'"
@@ -495,12 +588,58 @@ def generate_tweets(db, voice: dict):
         [f"- {t}" for t in avoid_texts]
     ) if avoid_texts else "(none yet)"
 
+    # Few-shot from last 5 posted tweets (the best voice calibration signal)
+    fewshot_rows = db.execute(
+        "SELECT text FROM posted ORDER BY posted_at DESC LIMIT 5"
+    ).fetchall()
+    fewshot_context = "\n".join(
+        [f"- {r['text']}" for r in fewshot_rows]
+    ) if fewshot_rows else ""
+
+    # Recent hook patterns for rotation enforcement
+    recent_hook_patterns = []
+    for r in posted_rows[:3]:
+        try:
+            scores = json.loads(r["scores_json"]) if r["scores_json"] else {}
+            hp = scores.get("hook_pattern", "")
+            if hp:
+                recent_hook_patterns.append(hp)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    # also check queued items
+    queued_scored = db.execute(
+        "SELECT scores_json FROM queue WHERE status='queued' ORDER BY generated_at DESC LIMIT 3"
+    ).fetchall()
+    for r in queued_scored:
+        try:
+            scores = json.loads(r["scores_json"]) if r["scores_json"] else {}
+            hp = scores.get("hook_pattern", "")
+            if hp:
+                recent_hook_patterns.append(hp)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    recent_hooks_str = ""
+    if recent_hook_patterns:
+        recent_hooks_str = ", ".join(recent_hook_patterns[-5:])
+        log_brain(f"generate: recent hooks = [{recent_hooks_str}]")
+
     # Pick territories
     territories = pick_territories(voice)
     log_brain(f"generate: territories = {territories}")
 
+    # Check if Claude Khud left creative guidance
+    khud_guidance = get_state(db, "khud.tweet_guidance") or ""
+    if khud_guidance:
+        log_brain(f"generate: Claude Khud guidance -> {khud_guidance[:100]}")
+
     # Build prompt and call Claude
-    prompt = build_generation_prompt(voice, territories, signal_context, avoid_context)
+    prompt = build_generation_prompt(
+        voice, territories, signal_context, avoid_context,
+        fewshot_context=fewshot_context,
+        recent_hooks=recent_hooks_str,
+        khud_guidance=khud_guidance,
+    )
 
     if DRY_RUN:
         log_brain("DRY RUN: would call Claude for generation. prompt length="
@@ -514,18 +653,20 @@ def generate_tweets(db, voice: dict):
         return
 
     # Parse and filter candidates
-    candidates = parse_batch_response(result, voice, avoid_texts)
+    candidates = parse_batch_response(result, voice, avoid_texts,
+                                      recent_hook_patterns=recent_hook_patterns)
 
     # Insert passing candidates into queue
     inserted = 0
     for c in candidates:
         db.execute(
             "INSERT OR IGNORE INTO queue "
-            "(id, text, territory, status, scores_json, image_type, "
+            "(id, text, territory, status, scores_json, image_type, card_text, "
             " generated_at, expires_at, generator) "
-            "VALUES (?,?,?,'queued',?,?,?,?,'claude-opus')",
+            "VALUES (?,?,?,'queued',?,?,?,?,?,'claude-opus')",
             (c["id"], c["text"], c["territory"], c["scores_json"],
-             c["image_type"], c["generated_at"], c["expires_at"])
+             c["image_type"], c.get("card_text", ""),
+             c["generated_at"], c["expires_at"])
         )
         inserted += 1
 
@@ -555,7 +696,11 @@ def load_targets(db):
         log_brain(f"targets: failed to read target-handles.json: {e}", level="error")
         return
 
-    handles = data.get("handles", [])
+    # support both formats: flat array [{handle, priority}] or object {handles: [...]}
+    if isinstance(data, list):
+        handles = data
+    else:
+        handles = data.get("handles", [])
     if not handles:
         return
 
@@ -564,18 +709,19 @@ def load_targets(db):
         handle = h.get("handle", "").lstrip("@")
         if not handle:
             continue
+        categories = h.get("categories", [])
+        territory = categories[0] if categories else ""
         db.execute(
-            "INSERT INTO reply_targets (handle, priority, territory, themes_json, author_context) "
-            "VALUES (?,?,?,?,?) "
+            "INSERT INTO reply_targets (handle, priority, territory, themes_json) "
+            "VALUES (?,?,?,?) "
             "ON CONFLICT(handle) DO UPDATE SET "
             "priority=excluded.priority, territory=excluded.territory, "
-            "themes_json=excluded.themes_json, author_context=excluded.author_context",
+            "themes_json=excluded.themes_json",
             (
                 handle,
                 h.get("priority", 2),
-                h.get("themes", [""])[0] if h.get("themes") else "",
-                json.dumps(h.get("themes", [])),
-                h.get("author_context", ""),
+                territory,
+                json.dumps(categories),
             )
         )
         upserted += 1
@@ -606,7 +752,7 @@ def pick_reply_target(db, exclude_handles: list | None = None) -> dict | None:
     already_drafted = {row["target_handle"] for row in db.execute(
         "SELECT DISTINCT target_handle FROM reply_drafts WHERE status='ready'"
     ).fetchall()}
-    skip = already_drafted | set(exclude_handles or [])
+    skip = already_drafted | set(exclude_handles or []) | shared.HANDLE_BLACKLIST
 
     # Priority 1 first, then 2, then 3. Within same priority, oldest last_replied_at.
     # Handles with NULL last_replied_at come first (never replied to).

@@ -36,7 +36,7 @@
     "max_sentences": 2,
     "exception": "a 3-sentence builder confession is allowed when the story earns the length. rare, maybe 1 in 10.",
     "max_chars": 280,
-    "case": "all lowercase. no exceptions.",
+    "case": "natural case. capitalize where it reads better. no ALL CAPS unless the emphasis earns it.",
     "punctuation": "periods only. no exclamation marks. no question marks unless the question IS the point."
   },
 
@@ -78,12 +78,14 @@
 
   "timing": {
     "windows_ist": [
-      {"name": "morning", "start": "07:30", "end": "10:30", "weight": 0.25},
-      {"name": "midday", "start": "11:30", "end": "14:30", "weight": 0.20},
-      {"name": "afternoon", "start": "16:00", "end": "18:00", "weight": 0.15},
-      {"name": "evening_overlap", "start": "19:30", "end": "23:00", "weight": 0.40}
+      {"name": "late_night", "start": "00:00", "end": "07:00", "weight": 0.10},
+      {"name": "morning", "start": "07:00", "end": "11:00", "weight": 0.25},
+      {"name": "midday", "start": "11:00", "end": "15:00", "weight": 0.20},
+      {"name": "afternoon", "start": "15:00", "end": "19:30", "weight": 0.20},
+      {"name": "evening_overlap", "start": "19:30", "end": "23:30", "weight": 0.15},
+      {"name": "night", "start": "23:30", "end": "23:59", "weight": 0.10}
     ],
-    "min_gap_hours": 2,
+    "min_gap_hours": 1.5,
     "timezone": "Asia/Kolkata"
   },
 

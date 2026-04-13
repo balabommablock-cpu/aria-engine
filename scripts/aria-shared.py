@@ -37,6 +37,9 @@ POST_TWEET_JS  = Path(os.path.expanduser(
 
 DRY_RUN = "--dry-run" in sys.argv
 
+# Handles that consistently fail (can't find tweets, subscription-locked, etc.)
+HANDLE_BLACKLIST = {"johncutlefish"}
+
 
 # ============================================================
 # DATABASE
@@ -301,7 +304,8 @@ def release_lock():
 import subprocess
 
 def call_claude(prompt: str, max_retries: int = 2) -> str | None:
-    """Call Claude via CLI. Returns text or None on failure."""
+    """Call Claude Opus 4.6 via CLI. For creative/intelligent tasks.
+    Returns text or None on failure."""
     for attempt in range(max_retries + 1):
         try:
             result = subprocess.run(
@@ -319,6 +323,25 @@ def call_claude(prompt: str, max_retries: int = 2) -> str | None:
         except Exception as e:
             log(f"claude error: {e}", level="error")
             break
+    return None
+
+
+def call_gemma(prompt: str, timeout: int = 60) -> str | None:
+    """Call Gemma 4 26B via ollama. For mechanical tasks that need no intelligence.
+    Use ONLY for: summarization of structured data, simple classification,
+    text reformatting. NEVER for creative generation or voice-sensitive content."""
+    try:
+        result = subprocess.run(
+            ["ollama", "run", "gemma4:26b"],
+            input=prompt,
+            capture_output=True, text=True, timeout=timeout
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        log("gemma timeout", level="error")
+    except Exception as e:
+        log(f"gemma error: {e}", level="error")
     return None
 
 
