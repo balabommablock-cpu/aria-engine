@@ -18,10 +18,10 @@
   ],
 
   "territory_weights": {
-    "building": 0.30,
-    "organizations": 0.25,
-    "ai": 0.25,
-    "taste_agency": 0.20
+    "building": 0.35,
+    "organizations": 0.20,
+    "ai": 0.20,
+    "taste_agency": 0.25
   },
 
   "territory_prompts": {
@@ -85,7 +85,7 @@
       {"name": "evening_overlap", "start": "19:30", "end": "23:30", "weight": 0.15},
       {"name": "night", "start": "23:30", "end": "23:59", "weight": 0.10}
     ],
-    "min_gap_hours": 1.5,
+    "min_gap_hours": 0.5,
     "timezone": "Asia/Kolkata"
   },
 

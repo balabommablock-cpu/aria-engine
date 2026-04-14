@@ -13,16 +13,16 @@ const { chromium } = require('playwright');
 
   // go to home timeline
   await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 15000 });
-  await page.waitForTimeout(2573);
+  await page.waitForTimeout(2053);
 
   // scroll down naturally (humans don't just stare at the top)
-  for (let i = 0; i < 2; i++) {
-    await page.mouse.wheel(0, 689);
-    await page.waitForTimeout(873);
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, 611);
+    await page.waitForTimeout(1696);
   }
 
   // maybe pause on a tweet (dwell time looks human)
-  await page.waitForTimeout(1746);
+  await page.waitForTimeout(1976);
 
   await browser.close();
 })().catch(() => {});

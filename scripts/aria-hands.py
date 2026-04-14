@@ -509,10 +509,20 @@ def pick_action(db, voice):
         log_hands(f"P1 skip: {window_info}")
 
     # --- P2: post_reply ---
-    blacklist = ",".join(f"'{h}'" for h in shared.HANDLE_BLACKLIST)
+    # Skip blacklisted + handles with 2+ recent failures (no fresh tweets)
+    skip_handles = set(shared.HANDLE_BLACKLIST)
+    fail_cutoff = (now_utc() - __import__('datetime').timedelta(hours=24)).isoformat()
+    for row in db.execute(
+        "SELECT target_handle FROM reply_drafts "
+        "WHERE status='failed' AND generated_at > ? "
+        "GROUP BY target_handle HAVING COUNT(*) >= 2",
+        (fail_cutoff,)
+    ).fetchall():
+        skip_handles.add(row["target_handle"])
+    skip_sql = ",".join(f"'{h}'" for h in skip_handles)
     reply = db.execute(
         f"SELECT * FROM reply_drafts WHERE status='ready' "
-        f"AND target_handle NOT IN ({blacklist}) "
+        f"AND target_handle NOT IN ({skip_sql}) "
         "ORDER BY generated_at ASC LIMIT 1"
     ).fetchone()
     if reply:
@@ -711,11 +721,19 @@ def _generate_contextual_reply(voice, target_handle, tweet_text, recent_replies)
     examples = random.sample(golden, min(4, len(golden)))
     examples_text = "\n".join(f"- {e['text']}" for e in examples)
 
-    # check if Claude Khud left reply guidance
+    # check if Claude Khud left reply guidance + semantic learnings
     khud_guidance = ""
+    semantic_learnings = ""
     try:
         _db = get_db()
         khud_guidance = get_state(_db, "khud.reply_guidance") or ""
+        rows = _db.execute(
+            "SELECT knowledge, confidence FROM memory_semantic_x "
+            "WHERE confidence >= 0.80 ORDER BY confidence DESC LIMIT 5"
+        ).fetchall()
+        if rows:
+            semantic_learnings = "\n".join(
+                f"- [{r['confidence']}] {r['knowledge']}" for r in rows)
         _db.close()
     except:
         pass
@@ -760,6 +778,9 @@ WHAT MAKES A BAD REPLY:
 
 CREATIVE DIRECTION FROM CLAUDE KHUD (your strategist brain -- follow this):
 {khud_guidance if khud_guidance else "(no specific guidance -- use your own judgment)"}
+
+LEARNED FROM EXPERIENCE (confirmed patterns -- respect these):
+{semantic_learnings if semantic_learnings else "(none yet)"}
 
 RULES:
 - natural case. capitalize where it reads better. not ALL CAPS.
@@ -1212,11 +1233,17 @@ def _check_daily_cap(db) -> bool:
         (utc_start,)
     ).fetchone()["c"]
 
-    if tweets_today >= 15:
-        log_hands(f"daily cap: {tweets_today} tweets (max 15)")
+    if tweets_today >= 30:
+        log_hands(f"daily cap: {tweets_today} tweets (max 30)")
         return False
-    if total_today >= 120:
-        log_hands(f"daily cap: {total_today} total actions (max 120)")
+    # count only successful actions (ignore failed reply attempts)
+    success_today = db.execute(
+        "SELECT COUNT(*) as c FROM engine_log WHERE process='hands' "
+        "AND message LIKE '%SUCCESS%' AND ts > ?",
+        (utc_start,)
+    ).fetchone()["c"]
+    if success_today >= 200:
+        log_hands(f"daily cap: {success_today} successful actions (max 200)")
         return False
     return True
 
@@ -1224,7 +1251,7 @@ def _check_daily_cap(db) -> bool:
 def _random_skip() -> bool:
     """10% chance to skip a cycle entirely. humans don't check X every
     single 10 minutes like clockwork. random gaps look natural."""
-    return random.random() < 0.10
+    return random.random() < 0.02
 
 
 def main():

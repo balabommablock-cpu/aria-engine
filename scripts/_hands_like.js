@@ -6,9 +6,9 @@ const { withCdpLock } = require('/Users/boredfolio/.openclaw/agents/aria/workspa
   const browser = await chromium.connectOverCDP('http://127.0.0.1:28800');
   const page = browser.contexts()[0].pages()[0];
 
-  await page.goto('https://x.com/shreyas/status/2039760142980514275', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto('https://x.com/_akhaliq/status/2043864466870145221', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15000 });
-  await page.waitForTimeout(3595);
+  await page.waitForTimeout(2497);
 
   // find the like button on the main tweet (first article)
   const article = page.locator('article[data-testid="tweet"]').first();

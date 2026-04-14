@@ -38,7 +38,7 @@ POST_TWEET_JS  = Path(os.path.expanduser(
 DRY_RUN = "--dry-run" in sys.argv
 
 # Handles that consistently fail (can't find tweets, subscription-locked, etc.)
-HANDLE_BLACKLIST = {"johncutlefish"}
+HANDLE_BLACKLIST = {"johncutlefish", "shreyas"}
 
 
 # ============================================================

@@ -5,11 +5,11 @@ const { chromium } = require('playwright');
   const browser = await chromium.connectOverCDP('http://127.0.0.1:28800');
   const page = browser.contexts()[0].pages()[0];
 
-  await page.goto('https://x.com/johncutlefish', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto('https://x.com/BalabommaRao', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15000 });
-  await page.waitForTimeout(3287);
+  await page.waitForTimeout(3754);
 
-  const targetHandle = 'johncutlefish'.toLowerCase();
+  const targetHandle = 'BalabommaRao'.toLowerCase();
   const result = await page.evaluate((handle) => {
     const articles = document.querySelectorAll('article[data-testid="tweet"]');
     const candidates = [];

@@ -56,10 +56,10 @@ TARGETS_PATH   = shared.TARGETS_PATH
 
 SIGNAL_STALE_HOURS = 2
 SIGNAL_CAP         = 200
-MIN_QUEUE_SIZE     = 4
-BATCH_SIZE         = 6
+MIN_QUEUE_SIZE     = 8
+BATCH_SIZE         = 8
 REPLY_COOLDOWN_H   = 2       # aggressive cold-start: 2h, not 4h
-MAX_READY_REPLIES  = 5       # keep 5 replies loaded, not 3
+MAX_READY_REPLIES  = 10      # aggressive cold-start: keep 10 replies loaded
 QUEUE_EXPIRY_HOURS = 36
 
 RSS_FEEDS = [
@@ -265,11 +265,26 @@ respond with ONLY the card text. nothing else."""
     return ""
 
 
+def load_semantic_learnings(db) -> str:
+    """Read confirmed learnings from semantic memory (0.80+ confidence).
+    These are patterns the system has LEARNED from experience.
+    Injected into generation prompts so learnings actually shape output."""
+    rows = db.execute(
+        "SELECT knowledge, confidence FROM memory_semantic_x "
+        "WHERE confidence >= 0.80 ORDER BY confidence DESC LIMIT 10"
+    ).fetchall()
+    if not rows:
+        return ""
+    lines = [f"- [{r['confidence']}] {r['knowledge']}" for r in rows]
+    return "\n".join(lines)
+
+
 def build_generation_prompt(voice: dict, territories: list,
                             signal_context: str, avoid_context: str,
                             fewshot_context: str = "",
                             recent_hooks: str = "",
-                            khud_guidance: str = "") -> str:
+                            khud_guidance: str = "",
+                            semantic_learnings: str = "") -> str:
     """Build the Claude prompt for tweet generation."""
     golden = voice["golden_tweets"]
     golden_text = "\n".join([f"- {g['text']}" for g in golden])
@@ -321,7 +336,7 @@ ALREADY POSTED OR QUEUED (don't repeat these angles):
 STRUCTURE RULES:
 - {structure.get('primary', 'redefine a familiar concept, reveal the uncomfortable implication')}
 - STANDARD tweets: max {structure.get('max_sentences', 2)} sentences, max {structure.get('max_chars', 280)} chars
-- LONG-FORM tweets: 1-2 of your 6 should be 400-600 chars. these are deeper explorations, mini-essays, or multi-observation threads packed into one post. premium accounts get algorithm boost on dwell time, so longer posts that reward re-reading perform well. mark these with format: long_form in the output.
+- NO long-form tweets. every tweet must be under 280 chars. this is a cold-start account. short and punchy wins. no mini-essays.
 - {structure.get('case', 'all lowercase')}
 - {structure.get('punctuation', 'periods only')}
 
@@ -332,6 +347,9 @@ HARD BANS (instant reject if any appear):
 
 CREATIVE DIRECTION FROM CLAUDE KHUD (your strategist brain -- follow this guidance):
 {khud_guidance if khud_guidance else "(no specific guidance this cycle -- use your own judgment)"}
+
+LEARNED FROM EXPERIENCE (these are confirmed patterns from past performance -- respect them):
+{semantic_learnings if semantic_learnings else "(no learnings yet)"}
 
 ANTI-PATTERNS (do NOT produce any of these):
 - do not write anything that sounds like a motivational poster or LinkedIn post
@@ -453,8 +471,8 @@ def parse_batch_response(raw: str, voice: dict, avoid_texts: list,
         tweet_format = format_m.group(1).strip().lower() if format_m else "standard"
         is_long_form = tweet_format == "long_form"
 
-        # Length check (Premium: long_form tweets up to 600 chars)
-        max_len = 600 if is_long_form else 280
+        # Length check -- cold start: hard cap at 280, no long-form
+        max_len = 280
         if len(text) > max_len or len(text) < 30:
             log_brain(f"  length {len(text)}/{max_len}, skip -- \"{text[:40]}...\"")
             continue
@@ -633,12 +651,18 @@ def generate_tweets(db, voice: dict):
     if khud_guidance:
         log_brain(f"generate: Claude Khud guidance -> {khud_guidance[:100]}")
 
+    # Load semantic memory -- learnings from experience that shape generation
+    semantic_learnings = load_semantic_learnings(db)
+    if semantic_learnings:
+        log_brain(f"generate: loaded {semantic_learnings.count(chr(10))+1} semantic learnings")
+
     # Build prompt and call Claude
     prompt = build_generation_prompt(
         voice, territories, signal_context, avoid_context,
         fewshot_context=fewshot_context,
         recent_hooks=recent_hooks_str,
         khud_guidance=khud_guidance,
+        semantic_learnings=semantic_learnings,
     )
 
     if DRY_RUN:
@@ -752,7 +776,17 @@ def pick_reply_target(db, exclude_handles: list | None = None) -> dict | None:
     already_drafted = {row["target_handle"] for row in db.execute(
         "SELECT DISTINCT target_handle FROM reply_drafts WHERE status='ready'"
     ).fetchall()}
-    skip = already_drafted | set(exclude_handles or []) | shared.HANDLE_BLACKLIST
+
+    # Auto-skip handles with 2+ failures in last 24h (no fresh tweets)
+    fail_cutoff = (now - timedelta(hours=24)).isoformat()
+    recently_failing = {row["target_handle"] for row in db.execute(
+        "SELECT target_handle FROM reply_drafts "
+        "WHERE status='failed' AND generated_at > ? "
+        "GROUP BY target_handle HAVING COUNT(*) >= 2",
+        (fail_cutoff,)
+    ).fetchall()}
+
+    skip = already_drafted | set(exclude_handles or []) | shared.HANDLE_BLACKLIST | recently_failing
 
     # Priority 1 first, then 2, then 3. Within same priority, oldest last_replied_at.
     # Handles with NULL last_replied_at come first (never replied to).
@@ -783,7 +817,7 @@ def pick_reply_target(db, exclude_handles: list | None = None) -> dict | None:
     }
 
 
-def build_reply_prompt(voice: dict, target: dict) -> str:
+def build_reply_prompt(voice: dict, target: dict, semantic_learnings: str = "") -> str:
     """Build a contextual reply prompt for a target handle.
 
     Since Brain has no CDP, we generate a reply that would work
@@ -824,6 +858,9 @@ TASK: write a reply that would work on a typical recent tweet from @{handle}. th
 3. feel like it comes from someone who actually read and thought about the tweet
 4. NOT be flattery ("great point", "so true", "love this", "this is spot on")
 5. NOT be advice giving ("you should", "try to", "have you considered")
+
+LEARNED FROM EXPERIENCE (confirmed patterns -- respect them):
+{semantic_learnings if semantic_learnings else "(none yet)"}
 
 RULES:
 - all lowercase
@@ -899,7 +936,8 @@ def generate_reply_drafts(db, voice: dict):
             log_brain(f"DRY RUN: would call Claude for reply to @{handle}")
             continue
 
-        prompt = build_reply_prompt(voice, target)
+        learnings = load_semantic_learnings(db)
+        prompt = build_reply_prompt(voice, target, semantic_learnings=learnings)
         result = call_claude(prompt)
 
         if not result:
@@ -921,7 +959,7 @@ def generate_reply_drafts(db, voice: dict):
             "(id, target_handle, target_tweet_url, target_tweet_text, "
             " reply_text, status, score, generated_at) "
             "VALUES (?,?,?,?,?,'ready',0,?)",
-            (draft_id, handle, "", author_context, clean_text, now)
+            (draft_id, handle, "", author_context or "", clean_text, now)
         )
         db.commit()
 

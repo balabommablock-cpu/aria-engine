@@ -4,8 +4,8 @@ const { chromium } = require('playwright');
   const browser = await chromium.connectOverCDP('http://127.0.0.1:28800');
   const page = browser.contexts()[0].pages()[0];
 
-  await page.goto('https://x.com/DrJimFan', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(2766);
+  await page.goto('https://x.com/drjimfan', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(3853);
 
   // check if already following
   const followBtn = await page.$('[data-testid$="-follow"]');
@@ -22,7 +22,7 @@ const { chromium } = require('playwright');
   }
 
   await followBtn.click();
-  await page.waitForTimeout(1601);
+  await page.waitForTimeout(1837);
   console.log('FOLLOWED');
   await browser.close();
 })().catch(e => { console.error(e.message); process.exit(1); });

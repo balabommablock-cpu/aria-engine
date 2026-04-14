@@ -28,6 +28,8 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import importlib
 shared = importlib.import_module("aria-shared")
 memory = importlib.import_module("aria-memory")
+li_db = importlib.import_module("aria-linkedin-db")
+li_formats = importlib.import_module("aria-linkedin-formats")
 
 get_db        = shared.get_db
 init_db       = shared.init_db
@@ -37,6 +39,7 @@ call_claude   = shared.call_claude
 now_utc       = shared.now_utc
 get_state     = shared.get_state
 set_state     = shared.set_state
+make_id       = shared.make_id
 WORKSPACE     = shared.WORKSPACE
 
 # memory functions
@@ -395,6 +398,245 @@ def parse_brain_response(response: str) -> list[dict]:
 
 
 # ============================================================
+# CONTENT GENERATION: produce actual LinkedIn posts
+# ============================================================
+
+MAX_LI_QUEUE = 6  # don't generate if queue already has this many
+
+
+def build_li_generation_prompt(db, voice: dict, count: int, guidance: str,
+                                format_type: str = None) -> str:
+    """Build a Claude prompt to generate LinkedIn posts.
+    Now supports multiple formats: text_observation, story_confession,
+    contrarian, list_post, question_post, framework, carousel_text."""
+
+    # Pick format if not specified
+    if not format_type:
+        format_type = li_formats.pick_format(db, voice)
+
+    format_prompt = li_formats.get_format_prompt(format_type)
+
+    golden = "\n".join(
+        f"  - {g['text']}" for g in voice.get("golden_tweets", [])[:7]
+    )
+
+    territory_weights = voice.get("territory_weights", {})
+    terr_str = ", ".join(
+        f"{k} ({int(v * 100)}%)" for k, v in territory_weights.items()
+    )
+    terr_prompts = voice.get("territory_prompts", {})
+    terr_detail = "\n".join(
+        f"  {k}: {v}" for k, v in terr_prompts.items()
+    )
+
+    # recent X posts for cross-platform adaptation
+    x_recent = db.execute(
+        "SELECT text, territory FROM posted ORDER BY posted_at DESC LIMIT 10"
+    ).fetchall()
+    x_summary = ""
+    for p in x_recent:
+        x_summary += f"  [{p['territory']}] {p['text'][:200]}\n"
+
+    # already posted / queued on LinkedIn (avoid repetition)
+    avoid_parts = []
+    li_posted = db.execute(
+        "SELECT content FROM linkedin_posted ORDER BY posted_at DESC LIMIT 10"
+    ).fetchall()
+    for p in li_posted:
+        avoid_parts.append(p["content"][:200])
+    li_queued = db.execute(
+        "SELECT content FROM linkedin_queue WHERE status='queued'"
+    ).fetchall()
+    for q in li_queued:
+        avoid_parts.append(q["content"][:200])
+    avoid_str = "\n".join(f"  - {a}" for a in avoid_parts) if avoid_parts else "  (nothing yet)"
+
+    bans = voice.get("hard_bans", {})
+    ban_chars = ", ".join(bans.get("characters", []))
+    ban_words = ", ".join(bans.get("words", []))
+    ban_phrases = ", ".join(bans.get("phrases", [])[:10])
+
+    prompt = f"""generate {count} LinkedIn posts for @BalabommaRao.
+
+YOUR VOICE (study these -- this is the voice, adapted for LinkedIn's format):
+{golden}
+
+TERRITORIES: {terr_str}
+{terr_detail}
+
+RECENT X POSTS (expand the best into LinkedIn format with ONE story behind them):
+{x_summary or '  (none yet)'}
+
+AVOID REPETITION (already posted/queued):
+{avoid_str}
+
+--- FORMAT-SPECIFIC INSTRUCTIONS ---
+{format_prompt}
+--- END FORMAT ---
+
+LINKEDIN ALGORITHM RULES (follow these exactly):
+- FIRST LINE under 140 characters. this is the hook before "see more." bold claim, personal confession, or sharp number. earn the click.
+- the first 2 lines must create a NEED to click "see more." end line 2 with a colon, incomplete sentence, or cliffhanger.
+- white space between EVERY 2-3 sentences. short paragraphs. this hacks dwell time (60+ seconds = algorithmic boost).
+- the last line must LAND. specific question that invites comments, or a punch.
+- NO engagement bait. NO "thoughts?" NO "let me know in the comments."
+- NO em dashes. NO hyphens as formatting devices.
+- NO external links. ever.
+- natural case. builder-with-taste voice. direct, dry, concrete.
+- every post needs ONE concrete moment, detail, or story. not abstract wisdom. the specific thing that happened.
+
+CARD TEXT RULE:
+each post must include a CARD_TEXT: a single punchy line (under 100 characters) that captures the core insight.
+this will be rendered as a vertical quote card image (1080x1350) attached to the post.
+the card text must be DIFFERENT from the opening line. it's the single most bookmarkable sentence.
+
+HARD BANS:
+- characters: {ban_chars}
+- words: {ban_words}
+- phrases: {ban_phrases}
+- no @mentions. no URLs.
+- don't start with: "This.", "So,", "Look,", "Listen,", "Honestly,", "Actually,", "Genuinely"
+
+{f'CREATIVE DIRECTION: {guidance}' if guidance else ''}
+
+respond with exactly {count} posts:
+
+===POST===
+TERRITORY: [territory name]
+FORMAT: {format_type}
+ADAPTED: [original OR the X tweet you expanded]
+CARD_TEXT: [single punchy line, under 100 chars, for the quote card image]
+CONTENT:
+[the full LinkedIn post. short paragraphs. hook first line. concrete details.]
+===END==="""
+
+    return prompt
+
+
+def parse_li_posts(response: str) -> list[dict]:
+    """Parse Claude's response into individual LinkedIn posts with card text and format."""
+    posts = []
+    # Try with FORMAT line first
+    pattern = (
+        r'===POST===\s*\n\s*TERRITORY:\s*(.*?)\n\s*FORMAT:\s*(.*?)\n\s*ADAPTED:\s*(.*?)\n'
+        r'\s*CARD_TEXT:\s*(.*?)\n\s*CONTENT:\s*\n(.*?)===END==='
+    )
+    matches = re.findall(pattern, response, re.DOTALL)
+
+    if matches:
+        parsed = [(t, f, a, c_t, c) for t, f, a, c_t, c in matches]
+    else:
+        # fallback: without FORMAT line
+        pattern_nofmt = (
+            r'===POST===\s*\n\s*TERRITORY:\s*(.*?)\n\s*ADAPTED:\s*(.*?)\n'
+            r'\s*CARD_TEXT:\s*(.*?)\n\s*CONTENT:\s*\n(.*?)===END==='
+        )
+        matches_nofmt = re.findall(pattern_nofmt, response, re.DOTALL)
+        if matches_nofmt:
+            parsed = [(t, "text_observation", a, c_t, c) for t, a, c_t, c in matches_nofmt]
+        else:
+            # minimal fallback
+            pattern_min = r'===POST===\s*\n\s*TERRITORY:\s*(.*?)\n\s*ADAPTED:\s*(.*?)\n\s*CONTENT:\s*\n(.*?)===END==='
+            matches_min = re.findall(pattern_min, response, re.DOTALL)
+            parsed = [(t, "text_observation", a, "", c) for t, a, c in matches_min]
+
+    for territory, format_type, adapted, card_text, content in parsed:
+        territory = territory.strip().lower().replace(" ", "_")
+        format_type = format_type.strip().lower().replace(" ", "_")
+        adapted = adapted.strip()
+        card_text = card_text.strip()
+        content = content.strip()
+
+        if len(content) < 80:
+            continue
+        if len(content) > 1800:
+            content = content[:1500].rsplit("\n", 1)[0].strip()
+
+        # clean banned characters
+        for ch in ["\u2014", "\u2013"]:
+            content = content.replace(ch, ",")
+        content = content.replace("!", ".")
+
+        # clean card_text too
+        for ch in ["\u2014", "\u2013", "!"]:
+            card_text = card_text.replace(ch, "" if ch == "!" else ",")
+        if len(card_text) > 100:
+            card_text = card_text[:100].rsplit(" ", 1)[0]
+
+        posts.append({
+            "content": content,
+            "territory": territory,
+            "format_type": format_type,
+            "adapted_from": adapted if adapted.lower() != "original" else None,
+            "card_text": card_text or None,
+        })
+
+    return posts
+
+
+def generate_li_posts(db, voice: dict, count: int, guidance: str,
+                      format_type: str = None) -> list[dict]:
+    """Generate LinkedIn posts via Claude and insert into linkedin_queue.
+    Supports multiple formats and applies hook/CTA/hashtag optimization."""
+
+    # check queue depth
+    queued = db.execute(
+        "SELECT COUNT(*) as c FROM linkedin_queue WHERE status='queued'"
+    ).fetchone()["c"]
+    if queued >= MAX_LI_QUEUE:
+        log_brain(f"khud-li: queue already has {queued} posts, skipping generation")
+        return []
+
+    actual_count = min(count, MAX_LI_QUEUE - queued)
+
+    # Pick format for each post (or use specified format)
+    chosen_format = format_type or li_formats.pick_format(db, voice)
+    prompt = build_li_generation_prompt(db, voice, actual_count, guidance,
+                                        format_type=chosen_format)
+    log_brain(f"khud-li: generating {actual_count} [{chosen_format}] LinkedIn posts "
+              f"(prompt {len(prompt)} chars)")
+
+    response = call_claude(prompt)
+    if not response:
+        log_brain("khud-li: content generation returned nothing", level="error")
+        return []
+
+    posts = parse_li_posts(response)
+    log_brain(f"khud-li: parsed {len(posts)} posts from response")
+
+    # Post-process: hook optimization, CTA optimization, hashtags
+    for post in posts:
+        fmt = post.get("format_type", chosen_format)
+        post["content"] = li_formats.post_process(
+            post["content"], post.get("territory", ""),
+            fmt, call_claude
+        )
+        post["format_type"] = fmt
+
+    inserted = []
+    now = now_utc().isoformat()
+    for post in posts:
+        image_type = "quote_card" if post.get("card_text") else "none"
+        scores = {"format_type": post.get("format_type", chosen_format)}
+        db.execute(
+            "INSERT INTO linkedin_queue (ts, content, territory, adapted_from, status, "
+            "scores_json, generated_at, card_text, image_type) VALUES (?,?,?,?,?,?,?,?,?)",
+            (now, post["content"], post["territory"],
+             post.get("adapted_from"), "queued",
+             json.dumps(scores), now,
+             post.get("card_text"), image_type)
+        )
+        inserted.append(post)
+
+    if inserted:
+        db.commit()
+        log_brain(f"khud-li: queued {len(inserted)} LinkedIn posts "
+                  f"(formats: {[p.get('format_type','?') for p in inserted]})")
+
+    return inserted
+
+
+# ============================================================
 # ACTION EXECUTORS: the brain tells the body what to do
 # ============================================================
 
@@ -425,11 +667,16 @@ def execute_actions(db, actions: list[dict], voice: dict):
         elif atype == "generate_posts":
             count = action.get("count", 3)
             guidance = action.get("guidance", "")
-            # store guidance for the generation cycle to pick up
+            # actually generate LinkedIn posts and queue them
+            posts = generate_li_posts(db, voice, count, guidance)
+            if posts:
+                results.append(f"generated {len(posts)} LinkedIn posts")
+                for p in posts:
+                    log_brain(f"khud-li queued [{p['territory']}]: {p['content'][:80]}")
+            else:
+                results.append("generation produced 0 posts (queue full or claude failed)")
             set_state(db, "khud_li.post_guidance", guidance)
-            set_state(db, "khud_li.post_count", str(count))
-            results.append(f"post guidance set: {guidance[:80]}")
-            log_brain(f"khud-li generate_posts: count={count}, guidance={guidance[:80]}")
+            log_brain(f"khud-li generate_posts: count={count}, got={len(posts)}")
 
         elif atype == "adjust":
             what = action.get("what", "")
@@ -516,6 +763,7 @@ def main():
     db = get_db()
     init_db()
     init_khud_li_tables(db)
+    li_db.init_linkedin_tables(db)
 
     voice = json.loads(VOICE_PATH.read_text()) if VOICE_PATH.exists() else {}
 

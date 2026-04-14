@@ -1,0 +1,78 @@
+{
+  "knobs": {
+    "territory_weight_building": {
+      "default": 1.0,
+      "min": 0.3,
+      "max": 2.0,
+      "description": "Score multiplier for building territory tweets"
+    },
+    "territory_weight_organizations": {
+      "default": 1.0,
+      "min": 0.3,
+      "max": 2.0,
+      "description": "Score multiplier for organizations territory tweets"
+    },
+    "territory_weight_ai": {
+      "default": 1.0,
+      "min": 0.3,
+      "max": 2.0,
+      "description": "Score multiplier for AI territory tweets"
+    },
+    "territory_weight_taste_agency": {
+      "default": 1.0,
+      "min": 0.3,
+      "max": 2.0,
+      "description": "Score multiplier for taste/agency territory tweets"
+    },
+    "posting_hour_start": {
+      "default": 8,
+      "min": 0,
+      "max": 23,
+      "description": "Earliest hour (IST) to post tweets"
+    },
+    "posting_hour_end": {
+      "default": 23,
+      "min": 0,
+      "max": 23,
+      "description": "Latest hour (IST) to post tweets"
+    },
+    "reply_min_score": {
+      "default": 5.0,
+      "min": 0.0,
+      "max": 15.0,
+      "description": "Minimum composite score for reply drafts to be posted"
+    },
+    "exploration_rate": {
+      "default": 0.15,
+      "min": 0.0,
+      "max": 0.5,
+      "description": "Probability of trying non-optimal territory/pattern for exploration"
+    },
+    "max_daily_actions": {
+      "default": 60,
+      "min": 10,
+      "max": 120,
+      "description": "Maximum total actions (tweets + replies + engagements) per 24h"
+    },
+    "inversion_penalty": {
+      "default": 0.7,
+      "min": 0.2,
+      "max": 1.0,
+      "description": "Score multiplier for inversion hook pattern (lower = more penalized)"
+    }
+  },
+  "safety": {
+    "max_knob_change_per_cycle": 0.2,
+    "max_concurrent_experiments": 2,
+    "min_observations_for_constraint": 5,
+    "cooldown_after_revert_hours": 72,
+    "require_human_approval_above": 0.4,
+    "duration_hours": 48
+  },
+  "experiment_defaults": {
+    "duration_hours": 48,
+    "min_sample_size": 15,
+    "p_value_threshold": 0.10,
+    "min_effect_size": 0.3
+  }
+}
